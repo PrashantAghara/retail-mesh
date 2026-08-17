@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: retailmesh
+      POSTGRES_PASSWORD: retailmesh
+      POSTGRES_DB: retailmesh
+    ports:
+      - "5432:5432"
+    volumes:
+      - retailmesh_data:/var/lib/postgresql/data
+volumes:
+  retailmesh_data:

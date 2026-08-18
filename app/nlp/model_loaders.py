@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -19,7 +20,10 @@ class NLPModels:
 
 
 def load_nlp_models(settings: Settings) -> NLPModels:
-    embedder = HuggingFaceEmbeddings(model_name=settings.embedding_model)
+    os.environ["HF_TOKEN"] = settings.hf_token
+    embedder = HuggingFaceEmbeddings(
+        model_name=settings.embedding_model,
+    )
 
     category_embeddings = {
         category: [embedder.embed_query(ex) for ex in examples]

@@ -1,7 +1,8 @@
 import uuid
+
+from langchain_core.tools import tool
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from langchain_core.tools import tool
 
 from app.fulfillment.db import find_products
 

@@ -2,9 +2,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.fulfillment import router as fulfillment_router
 from app.api.nlp import router as nlp_router
 from app.api.rag import router as rag_router
 from app.core.config import get_settings
+from app.fulfillment.model_registry import load_fulfillment_models
 from app.nlp.model_loaders import load_nlp_models
 from app.rag.model_registry import load_rag_models
 
@@ -14,12 +16,14 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.nlp_models = load_nlp_models(settings)
     app.state.rag_models = load_rag_models(settings)
+    app.state.fulfillment_models = load_fulfillment_models(settings)
     yield
 
 
 app = FastAPI(title="RetailMesh", lifespan=lifespan)
 app.include_router(nlp_router)
 app.include_router(rag_router)
+app.include_router(fulfillment_router)
 
 
 @app.get("/health")

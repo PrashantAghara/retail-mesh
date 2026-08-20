@@ -3,3 +3,5 @@ __pycache__/
 .env
 *.pt
 notebooks/.ipynb_checkpoints/
+.pytest_cache
+.ruff_cache

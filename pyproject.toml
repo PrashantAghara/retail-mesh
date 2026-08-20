@@ -28,3 +28,9 @@ dependencies = [
     "ultralytics>=8.4.120",
     "uvicorn>=0.52.3",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.3",
+]

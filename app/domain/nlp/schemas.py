@@ -24,3 +24,16 @@ class AnalyzeResponse(BaseModel):
     sentiment: str
     method: Literal["embedding", "llm_fallback"]
     reasoning: str | None = None
+
+
+class Intent(BaseModel):
+    category: Literal["support", "fulfillment", "vision"]
+    confidence: float
+    sentiment: str | None = None
+
+
+class AgentState(BaseModel):
+    query: str
+    intent: Intent | None = None
+    response: str | None = None
+    metadata: dict = {}

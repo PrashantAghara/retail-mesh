@@ -1,20 +1,20 @@
 from fastapi import Request
 
 from app.core.config import get_settings
-from app.fulfillment.model_registry import FulfillmentModels
-from app.nlp.model_loaders import NLPModels
-from app.rag.model_registry import RAGModels
+from app.domain.fulfillment.model_registry import FulfillmentModelsContainer
+from app.domain.nlp.model_registry import NLPModelsContainer
+from app.domain.rag.model_registry import RAGModelsContainer
 
 
-def get_nlp_models(request: Request) -> NLPModels:
+def get_nlp_models(request: Request) -> NLPModelsContainer:
     return request.app.state.nlp_models
 
 
-def get_rag_models(request: Request) -> RAGModels:
+def get_rag_models(request: Request) -> RAGModelsContainer:
     return request.app.state.rag_models
 
 
-def get_fulfillment_models(request: Request) -> FulfillmentModels:
+def get_fulfillment_models(request: Request) -> FulfillmentModelsContainer:
     return request.app.state.fulfillment_models
 
 

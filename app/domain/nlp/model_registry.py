@@ -1,8 +1,6 @@
-import os
 from dataclasses import dataclass
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from transformers import pipeline
 

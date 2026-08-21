@@ -13,12 +13,15 @@ from app.api.nlp import router as nlp_router
 from app.api.rag import router as rag_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
+from app.core.logging import configure_logging
 from app.core.models import load_shared_models
 from app.domain.fulfillment.model_registry import load_fulfillment_models
 from app.domain.nlp.model_registry import load_nlp_models
 from app.domain.rag.model_registry import load_rag_models
 
+configure_logging()
 logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 

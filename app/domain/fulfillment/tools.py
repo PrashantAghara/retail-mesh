@@ -5,49 +5,51 @@ from langchain_core.tools import tool
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from app.core.config import get_settings
+from app.core.config import Settings
 
 
-def find_products(product_name: str, engine: Engine) -> list[tuple[Any, ...]]:
+def find_products(
+    product_name: str, engine: Engine, settings: Settings
+) -> list[tuple[Any, ...]]:
     """Find products matching the given name (partial match).
-    
+
     Args:
         product_name: Product name to search for.
         engine: SQLAlchemy engine.
-        
+        settings: Application settings.
+
     Returns:
         List of product tuples (id, title, stock_count, price, aisle).
     """
-    settings = get_settings()
     words = product_name.strip().split()
     if not words:
         return []
-    
-    # Build parameterized query safely
+
     placeholders = [f"title ILIKE :word{i}" for i in range(len(words))]
     conditions = " AND ".join(placeholders)
     params = {f"word{i}": f"%{w}%" for i, w in enumerate(words)}
-    
+
     query = text(
-        f"SELECT id, title, stock_count, price, aisle FROM products WHERE {conditions} LIMIT {settings.fulfillment_max_product_results}"
+        f"SELECT id, title, stock_count, price, aisle FROM products WHERE {conditions} "
+        f"LIMIT {settings.fulfillment_max_product_results}"
     )
-    
+
     with engine.connect() as conn:
         return conn.execute(query, params).fetchall()
 
 
-def _generate_order_id() -> str:
+def _generate_order_id(settings: Settings) -> str:
     """Generate a unique order ID using configured prefix and length."""
-    settings = get_settings()
-    return f"{settings.fulfillment_order_id_prefix}{uuid.uuid4().hex[:settings.fulfillment_order_id_length]}"
+    return f"{settings.fulfillment_order_id_prefix}{uuid.uuid4().hex[: settings.fulfillment_order_id_length]}"
 
 
-def build_fulfillment_tools(engine: Engine):
-    """Build fulfillment tools with database engine closure.
-    
+def build_fulfillment_tools(engine: Engine, settings: Settings):
+    """Build fulfillment tools with database engine and settings closure.
+
     Args:
         engine: SQLAlchemy engine for database operations.
-        
+        settings: Application settings.
+
     Returns:
         List of LangChain tools for fulfillment operations.
     """
@@ -59,8 +61,8 @@ def build_fulfillment_tools(engine: Engine):
         Use this when a customer asks if an item is in stock or available."""
         if not product_name or not product_name.strip():
             return "Product name is required."
-            
-        rows = find_products(product_name, engine)
+
+        rows = find_products(product_name, engine, settings)
         if not rows:
             return f"No product found matching '{product_name}'."
         lines = []
@@ -77,15 +79,15 @@ def build_fulfillment_tools(engine: Engine):
             return "Product name is required."
         if quantity <= 0:
             return "Quantity must be positive."
-            
-        rows = find_products(product_name, engine)
+
+        rows = find_products(product_name, engine, settings)
         if not rows:
             return f"No product found matching '{product_name}'."
         product_id, title, stock, _, _ = rows[0]
         if stock < quantity:
             return f"Cannot place order — only {stock} units of '{title}' available, requested {quantity}."
 
-        order_id = _generate_order_id()
+        order_id = _generate_order_id(settings)
         with engine.begin() as conn:
             conn.execute(
                 text(
@@ -106,7 +108,7 @@ def build_fulfillment_tools(engine: Engine):
         """Look up the current status of an existing order by its order ID."""
         if not order_id or not order_id.strip():
             return "Order ID is required."
-            
+
         with engine.connect() as conn:
             result = conn.execute(
                 text("""SELECT o.status, o.quantity, p.title, o.created_at
@@ -124,7 +126,7 @@ def build_fulfillment_tools(engine: Engine):
         """Cancel an existing order by its order ID. Only orders not yet out for delivery can be cancelled."""
         if not order_id or not order_id.strip():
             return "Order ID is required."
-            
+
         with engine.connect() as conn:
             result = conn.execute(
                 text(

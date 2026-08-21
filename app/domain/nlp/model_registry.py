@@ -8,7 +8,7 @@ from transformers import pipeline
 
 from app.core.config import Settings
 from app.core.exceptions import ConfigurationError, ModelLoadError
-from app.core.models import IntentChain, SentimentAnalyzer
+from app.core.models import IntentChain, SentimentAnalyzer, SharedModels
 from app.domain.nlp.constants import INTENT_EXAMPLES, INTENT_SYSTEM_PROMPT
 from app.domain.nlp.schemas import IntentOutput
 
@@ -21,37 +21,19 @@ class NLPModelsContainer:
     intent_chain: IntentChain
 
 
-def load_nlp_models(settings: Settings) -> NLPModelsContainer:
-    """Load and initialize all NLP models.
-    
-    Args:
-        settings: Application settings containing model configurations.
-        
-    Returns:
-        NLPModelsContainer with initialized models.
-        
-    Raises:
-        ConfigurationError: If required API keys are missing.
-        ModelLoadError: If model loading fails.
-    """
+def load_nlp_models(settings: Settings, shared: SharedModels) -> NLPModelsContainer:
     if not settings.groq_api_key:
         raise ConfigurationError("GROQ_API_KEY is required")
-    
-    if settings.hf_token:
-        os.environ["HF_TOKEN"] = settings.hf_token
-    
-    try:
-        embedder = HuggingFaceEmbeddings(model_name=settings.embedding_model)
 
+    try:
         category_embeddings = {
-            category: [embedder.embed_query(ex) for ex in examples]
+            category: [shared.embedder.embed_query(ex) for ex in examples]
             for category, examples in INTENT_EXAMPLES.items()
         }
-
-        sentiment_analyzer = pipeline("sentiment-analysis", model=settings.sentiment_model)
-
-        llm = ChatGroq(api_key=settings.groq_api_key, model=settings.intent_llm_model)
-        structured_llm = llm.with_structured_output(IntentOutput)
+        sentiment_analyzer = pipeline(
+            "sentiment-analysis", model=settings.sentiment_model
+        )
+        structured_llm = shared.llm.with_structured_output(IntentOutput)
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", INTENT_SYSTEM_PROMPT),
@@ -61,7 +43,7 @@ def load_nlp_models(settings: Settings) -> NLPModelsContainer:
         intent_chain = prompt | structured_llm
 
         return NLPModelsContainer(
-            embedder=embedder,
+            embedder=shared.embedder,
             category_embeddings=category_embeddings,
             sentiment_analyzer=sentiment_analyzer,
             intent_chain=intent_chain,

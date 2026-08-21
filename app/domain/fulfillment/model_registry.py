@@ -1,12 +1,11 @@
 from dataclasses import dataclass
 
 from langchain.agents import create_agent
-from langchain_groq import ChatGroq
 
 from app.core.config import Settings
 from app.core.database import get_engine
 from app.core.exceptions import ConfigurationError, ModelLoadError
-from app.core.models import FulfillmentAgent
+from app.core.models import FulfillmentAgent, SharedModels
 from app.domain.fulfillment.tools import build_fulfillment_tools
 
 FULFILLMENT_SYSTEM_PROMPT = """You are RetailMesh's fulfillment assistant. You help customers check product
@@ -20,29 +19,31 @@ class FulfillmentModelsContainer:
     agent: FulfillmentAgent
 
 
-def load_fulfillment_models(settings: Settings) -> FulfillmentModelsContainer:
-    """Load and initialize fulfillment agent.
-    
+def load_fulfillment_models(
+    settings: Settings, shared: SharedModels
+) -> FulfillmentModelsContainer:
+    """Load and initialize fulfillment agent, reusing the shared LLM.
+
     Args:
         settings: Application settings containing model configurations.
-        
+        shared: Pre-loaded models shared across domains (embedder, LLM).
+
     Returns:
         FulfillmentModelsContainer with initialized agent.
-        
+
     Raises:
         ConfigurationError: If required API keys are missing.
         ModelLoadError: If agent creation fails.
     """
     if not settings.groq_api_key:
         raise ConfigurationError("GROQ_API_KEY is required")
-    
+
     try:
         engine = get_engine()
-        tools = build_fulfillment_tools(engine)
-        llm = ChatGroq(api_key=settings.groq_api_key, model=settings.intent_llm_model)
+        tools = build_fulfillment_tools(engine, settings)
 
         agent = create_agent(
-            model=llm, tools=tools, system_prompt=FULFILLMENT_SYSTEM_PROMPT
+            model=shared.llm, tools=tools, system_prompt=FULFILLMENT_SYSTEM_PROMPT
         )
         return FulfillmentModelsContainer(agent=agent)
     except Exception as e:

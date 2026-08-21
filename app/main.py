@@ -11,6 +11,7 @@ from app.api.nlp import router as nlp_router
 from app.api.rag import router as rag_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
+from app.core.models import load_shared_models
 from app.domain.fulfillment.model_registry import load_fulfillment_models
 from app.domain.nlp.model_registry import load_nlp_models
 from app.domain.rag.model_registry import load_rag_models
@@ -33,16 +34,25 @@ async def _load_model(settings: Settings, name: str, loader: Callable) -> Awaita
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup and shutdown.
-    
-    Loads all ML models on startup and cleans up on shutdown.
+
+    Loads shared models once, then domain-specific models concurrently,
+    reusing the shared embedder/LLM instead of duplicating them.
     """
     settings = get_settings()
 
-    app.state.nlp_models = await _load_model(settings, "NLP", load_nlp_models)
-    app.state.rag_models = await _load_model(settings, "RAG", load_rag_models)
-    app.state.fulfillment_models = await _load_model(
-        settings, "fulfillment", load_fulfillment_models
+    shared = await _load_model(settings, "shared", load_shared_models)
+
+    nlp_models, rag_models, fulfillment_models = await asyncio.gather(
+        _load_model(settings, "NLP", lambda s: load_nlp_models(s, shared)),
+        _load_model(settings, "RAG", lambda s: load_rag_models(s, shared)),
+        _load_model(
+            settings, "fulfillment", lambda s: load_fulfillment_models(s, shared)
+        ),
     )
+
+    app.state.nlp_models = nlp_models
+    app.state.rag_models = rag_models
+    app.state.fulfillment_models = fulfillment_models
 
     yield
 

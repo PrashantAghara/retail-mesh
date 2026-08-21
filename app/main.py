@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -17,6 +19,7 @@ from app.domain.nlp.model_registry import load_nlp_models
 from app.domain.rag.model_registry import load_rag_models
 
 logger = logging.getLogger(__name__)
+load_dotenv()
 
 
 async def _load_model(settings: Settings, name: str, loader: Callable) -> Awaitable:
@@ -39,6 +42,7 @@ async def lifespan(app: FastAPI):
     reusing the shared embedder/LLM instead of duplicating them.
     """
     settings = get_settings()
+    os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN")
 
     shared = await _load_model(settings, "shared", load_shared_models)
 

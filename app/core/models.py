@@ -35,7 +35,6 @@ class SharedModels:
 
 
 def load_shared_models(settings: Settings) -> SharedModels:
-    """Models genuinely reused across domains — loaded exactly once."""
     embedder = HuggingFaceEmbeddings(model_name=settings.embedding_model)
     llm = ChatGroq(api_key=settings.groq_api_key, model=settings.intent_llm_model)
     return SharedModels(embedder=embedder, llm=llm)

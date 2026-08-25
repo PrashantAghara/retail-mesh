@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.api.fulfillment import router as fulfillment_router
 from app.api.nlp import router as nlp_router
 from app.api.rag import router as rag_router
+from app.api.supervisor import router as supervisor_router
 from app.api.vision import router as vision_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
@@ -19,6 +20,7 @@ from app.core.models import load_shared_models
 from app.domain.fulfillment.model_registry import load_fulfillment_models
 from app.domain.nlp.model_registry import load_nlp_models
 from app.domain.rag.model_registry import load_rag_models
+from app.domain.supervisor.model_registry import load_supervisor_models
 from app.domain.vision.model_registry import load_vision_models
 
 configure_logging()
@@ -59,7 +61,14 @@ async def lifespan(app: FastAPI):
         ),
         _load_model(settings, "vision", lambda s: load_vision_models(s, shared)),
     )
-
+    supervisor_models = await _load_model(
+        settings,
+        "supervisor",
+        lambda s: load_supervisor_models(
+            s, shared, nlp_models, rag_models, fulfillment_models, vision_models
+        ),
+    )
+    app.state.supervisor_models = supervisor_models
     app.state.nlp_models = nlp_models
     app.state.rag_models = rag_models
     app.state.fulfillment_models = fulfillment_models
@@ -75,6 +84,7 @@ app.include_router(nlp_router)
 app.include_router(rag_router)
 app.include_router(fulfillment_router)
 app.include_router(vision_router)
+app.include_router(supervisor_router)
 
 
 @app.exception_handler(AppError)

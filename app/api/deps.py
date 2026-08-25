@@ -4,6 +4,7 @@ from app.core.config import get_settings
 from app.domain.fulfillment.model_registry import FulfillmentModelsContainer
 from app.domain.nlp.model_registry import NLPModelsContainer
 from app.domain.rag.model_registry import RAGModelsContainer
+from app.domain.supervisor.model_registry import SupervisorModelsContainer
 from app.domain.vision.model_registry import VisionModelsContainer
 
 
@@ -23,8 +24,13 @@ def get_vision_models(request: Request) -> VisionModelsContainer:
     return request.app.state.vision_models
 
 
+def get_supervisor_models(request: Request) -> SupervisorModelsContainer:
+    return request.app.state.supervisor_models
+
+
 SettingsDep = get_settings
 NLPModelsDep = get_nlp_models
 RagModelsDep = get_rag_models
 FulfillmentModelsDep = get_fulfillment_models
 VisionModelsDep = get_vision_models
+SuoervisorModelsDep = get_supervisor_models

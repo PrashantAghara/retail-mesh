@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.api.fulfillment import router as fulfillment_router
 from app.api.nlp import router as nlp_router
 from app.api.rag import router as rag_router
+from app.api.vision import router as vision_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging
@@ -18,6 +19,7 @@ from app.core.models import load_shared_models
 from app.domain.fulfillment.model_registry import load_fulfillment_models
 from app.domain.nlp.model_registry import load_nlp_models
 from app.domain.rag.model_registry import load_rag_models
+from app.domain.vision.model_registry import load_vision_models
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -49,17 +51,19 @@ async def lifespan(app: FastAPI):
 
     shared = await _load_model(settings, "shared", load_shared_models)
 
-    nlp_models, rag_models, fulfillment_models = await asyncio.gather(
+    nlp_models, rag_models, fulfillment_models, vision_models = await asyncio.gather(
         _load_model(settings, "NLP", lambda s: load_nlp_models(s, shared)),
         _load_model(settings, "RAG", lambda s: load_rag_models(s, shared)),
         _load_model(
             settings, "fulfillment", lambda s: load_fulfillment_models(s, shared)
         ),
+        _load_model(settings, "vision", lambda s: load_vision_models(s, shared)),
     )
 
     app.state.nlp_models = nlp_models
     app.state.rag_models = rag_models
     app.state.fulfillment_models = fulfillment_models
+    app.state.vision_models = vision_models
 
     yield
 
@@ -70,6 +74,7 @@ app = FastAPI(title="RetailMesh", lifespan=lifespan)
 app.include_router(nlp_router)
 app.include_router(rag_router)
 app.include_router(fulfillment_router)
+app.include_router(vision_router)
 
 
 @app.exception_handler(AppError)

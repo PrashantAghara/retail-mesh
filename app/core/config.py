@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     sentiment_model: str = "cardiffnlp/twitter-roberta-base-sentiment-latest"
     intent_llm_model: str = "openai/gpt-oss-120b"
     intent_confidence_threshold: float = 0.65
+    vision_weights_path: str = "models/shelf_detection_best.pt"
 
     # RAG settings
     rag_collection_name: str = "retailmesh_knowledge_base"

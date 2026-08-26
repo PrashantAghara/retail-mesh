@@ -17,9 +17,9 @@ TEMP_AUDIO_DIR = Path(tempfile.gettempdir())
 
 @router.post("/query")
 async def query_voice(
-    file: UploadFile = File(...),
-    voice_models: VoiceModelsContainer = Depends(get_voice_models),
-    supervisor_models: SupervisorModelsContainer = Depends(get_supervisor_models),
+    file: UploadFile = File(...),  # noqa: B008
+    voice_models: VoiceModelsContainer = Depends(get_voice_models),  # noqa: B008
+    supervisor_models: SupervisorModelsContainer = Depends(get_supervisor_models),  # noqa: B008
 ):
     suffix = Path(file.filename).suffix or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:

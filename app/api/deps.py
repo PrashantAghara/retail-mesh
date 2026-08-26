@@ -6,6 +6,7 @@ from app.domain.nlp.model_registry import NLPModelsContainer
 from app.domain.rag.model_registry import RAGModelsContainer
 from app.domain.supervisor.model_registry import SupervisorModelsContainer
 from app.domain.vision.model_registry import VisionModelsContainer
+from app.domain.voice.model_registry import VoiceModelsContainer
 
 
 def get_nlp_models(request: Request) -> NLPModelsContainer:
@@ -26,6 +27,10 @@ def get_vision_models(request: Request) -> VisionModelsContainer:
 
 def get_supervisor_models(request: Request) -> SupervisorModelsContainer:
     return request.app.state.supervisor_models
+
+
+def get_voice_models(request: Request) -> VoiceModelsContainer:
+    return request.app.state.voice_models
 
 
 SettingsDep = get_settings

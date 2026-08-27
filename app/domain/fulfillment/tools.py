@@ -3,19 +3,20 @@ from typing import Any
 
 from langchain_core.tools import tool
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.database import get_session_factory
 
 
 def find_products(
-    product_name: str, engine: Engine, settings: Settings
+    product_name: str, session: Session, settings: Settings
 ) -> list[tuple[Any, ...]]:
     """Find products matching the given name (partial match).
 
     Args:
         product_name: Product name to search for.
-        engine: SQLAlchemy engine.
+        session: SQLAlchemy session.
         settings: Application settings.
 
     Returns:
@@ -34,8 +35,7 @@ def find_products(
         f"LIMIT {settings.fulfillment_max_product_results}"
     )
 
-    with engine.connect() as conn:
-        return conn.execute(query, params).fetchall()
+    return session.execute(query, params).fetchall()
 
 
 def _generate_order_id(settings: Settings) -> str:
@@ -43,17 +43,16 @@ def _generate_order_id(settings: Settings) -> str:
     return f"{settings.fulfillment_order_id_prefix}{uuid.uuid4().hex[: settings.fulfillment_order_id_length]}"
 
 
-def build_fulfillment_tools(engine: Engine, settings: Settings):
-    """Build fulfillment tools with database engine and settings closure.
+def build_fulfillment_tools(settings: Settings):
+    """Build fulfillment tools with database session factory and settings closure.
 
     Args:
-        engine: SQLAlchemy engine for database operations.
         settings: Application settings.
 
     Returns:
         List of LangChain tools for fulfillment operations.
     """
-    non_cancellable_statuses = ("out_for_delivery", "delivered", "cancelled")
+    session_factory = get_session_factory()
 
     @tool
     def check_stock(product_name: str) -> str:
@@ -62,14 +61,15 @@ def build_fulfillment_tools(engine: Engine, settings: Settings):
         if not product_name or not product_name.strip():
             return "Product name is required."
 
-        rows = find_products(product_name, engine, settings)
-        if not rows:
-            return f"No product found matching '{product_name}'."
-        lines = []
-        for _, title, stock, price, aisle in rows:
-            status = f"{stock} in stock" if stock > 0 else "OUT OF STOCK"
-            lines.append(f"{title}: {status}, ₹{price}, located at {aisle}")
-        return "\n".join(lines)
+        with session_factory() as session:
+            rows = find_products(product_name, session, settings)
+            if not rows:
+                return f"No product found matching '{product_name}'."
+            lines = []
+            for _, title, stock, price, aisle in rows:
+                status = f"{stock} in stock" if stock > 0 else "OUT OF STOCK"
+                lines.append(f"{title}: {status}, ₹{price}, located at {aisle}")
+            return "\n".join(lines)
 
     @tool
     def place_order(product_name: str, quantity: int) -> str:
@@ -80,28 +80,36 @@ def build_fulfillment_tools(engine: Engine, settings: Settings):
         if quantity <= 0:
             return "Quantity must be positive."
 
-        rows = find_products(product_name, engine, settings)
-        if not rows:
-            return f"No product found matching '{product_name}'."
-        product_id, title, stock, _, _ = rows[0]
-        if stock < quantity:
-            return f"Cannot place order — only {stock} units of '{title}' available, requested {quantity}."
+        with session_factory() as session:
+            rows = find_products(product_name, session, settings)
+            if not rows:
+                return f"No product found matching '{product_name}'."
+            product_id, title, _, _, _ = rows[0]
 
-        order_id = _generate_order_id(settings)
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO orders (order_id, product_id, quantity, status) VALUES (:o, :p, :q, 'placed')"
-                ),
-                {"o": order_id, "p": product_id, "q": quantity},
-            )
-            conn.execute(
-                text(
-                    "UPDATE products SET stock_count = stock_count - :q WHERE id = :p"
-                ),
-                {"q": quantity, "p": product_id},
-            )
-        return f"Order placed! Order ID: {order_id} — {quantity}x {title}."
+            order_id = _generate_order_id(settings)
+            try:
+                result = session.execute(
+                    text(
+                        "UPDATE products SET stock_count = stock_count - :q "
+                        "WHERE id = :p AND stock_count >= :q "
+                        "RETURNING stock_count"
+                    ),
+                    {"q": quantity, "p": product_id},
+                ).fetchone()
+                if not result:
+                    return f"Cannot place order — insufficient stock for '{title}' (requested {quantity})."
+
+                session.execute(
+                    text(
+                        "INSERT INTO orders (order_id, product_id, quantity, status) VALUES (:o, :p, :q, 'placed')"
+                    ),
+                    {"o": order_id, "p": product_id, "q": quantity},
+                )
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                return f"Failed to place order: {e}"
+            return f"Order placed! Order ID: {order_id} — {quantity}x {title}."
 
     @tool
     def track_order(order_id: str) -> str:
@@ -109,17 +117,17 @@ def build_fulfillment_tools(engine: Engine, settings: Settings):
         if not order_id or not order_id.strip():
             return "Order ID is required."
 
-        with engine.connect() as conn:
-            result = conn.execute(
+        with session_factory() as session:
+            result = session.execute(
                 text("""SELECT o.status, o.quantity, p.title, o.created_at
                         FROM orders o JOIN products p ON o.product_id = p.id
                         WHERE o.order_id = :order_id"""),
                 {"order_id": order_id},
             ).fetchone()
-        if not result:
-            return f"No order found with ID '{order_id}'."
-        status, quantity, title, created_at = result
-        return f"Order {order_id}: {quantity}x {title}, status = '{status}', placed on {created_at.strftime('%Y-%m-%d %H:%M')}."
+            if not result:
+                return f"No order found with ID '{order_id}'."
+            status, quantity, title, created_at = result
+            return f"Order {order_id}: {quantity}x {title}, status = '{status}', placed on {created_at.strftime('%Y-%m-%d %H:%M')}."
 
     @tool
     def cancel_order(order_id: str) -> str:
@@ -127,31 +135,34 @@ def build_fulfillment_tools(engine: Engine, settings: Settings):
         if not order_id or not order_id.strip():
             return "Order ID is required."
 
-        with engine.connect() as conn:
-            result = conn.execute(
+        non_cancellable_statuses = ("out_for_delivery", "delivered", "cancelled")
+
+        with session_factory() as session:
+            result = session.execute(
                 text(
-                    "SELECT status, product_id, quantity FROM orders WHERE order_id = :order_id"
+                    "SELECT status, product_id, quantity FROM orders WHERE order_id = :order_id FOR UPDATE"
                 ),
                 {"order_id": order_id},
             ).fetchone()
-        if not result:
-            return f"No order found with ID '{order_id}'."
-        status, product_id, quantity = result
-        if status in non_cancellable_statuses:
-            return (
-                f"Order {order_id} cannot be cancelled — current status is '{status}'."
-            )
-        with engine.begin() as conn:
-            conn.execute(
+            if not result:
+                return f"No order found with ID '{order_id}'."
+            status, product_id, quantity = result
+            if status in non_cancellable_statuses:
+                return (
+                    f"Order {order_id} cannot be cancelled — current status is '{status}'."
+                )
+
+            session.execute(
                 text("UPDATE orders SET status = 'cancelled' WHERE order_id = :o"),
                 {"o": order_id},
             )
-            conn.execute(
+            session.execute(
                 text(
                     "UPDATE products SET stock_count = stock_count + :q WHERE id = :p"
                 ),
                 {"q": quantity, "p": product_id},
             )
+            session.commit()
         return f"Order {order_id} has been cancelled and refunded."
 
     return [check_stock, place_order, track_order, cancel_order]

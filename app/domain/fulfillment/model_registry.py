@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from langchain.agents import create_agent
 
 from app.core.config import Settings
-from app.core.database import get_engine
 from app.core.exceptions import ConfigurationError, ModelLoadError
 from app.core.models import FulfillmentAgent, SharedModels
 from app.domain.fulfillment.tools import build_fulfillment_tools
@@ -39,8 +38,7 @@ def load_fulfillment_models(
         raise ConfigurationError("GROQ_API_KEY is required")
 
     try:
-        engine = get_engine()
-        tools = build_fulfillment_tools(engine, settings)
+        tools = build_fulfillment_tools(settings)
 
         agent = create_agent(
             model=shared.llm, tools=tools, system_prompt=FULFILLMENT_SYSTEM_PROMPT

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.fulfillment import router as fulfillment_router
@@ -14,8 +15,9 @@ from app.api.rag import router as rag_router
 from app.api.supervisor import router as supervisor_router
 from app.api.vision import router as vision_router
 from app.api.voice import router as voice_router
-from app.core.config import Settings, get_settings
+from app.core.config import Settings, get_settings, validate_startup_config
 from app.core.exceptions import AppError
+from app.core.health import HealthStatus, run_health_checks
 from app.core.logging import configure_logging
 from app.core.models import load_shared_models
 from app.domain.fulfillment.model_registry import load_fulfillment_models
@@ -25,7 +27,9 @@ from app.domain.supervisor.model_registry import load_supervisor_models
 from app.domain.vision.model_registry import load_vision_models
 from app.domain.voice.model_registry import load_voice_models
 
-configure_logging()
+# Validate configuration at startup - fail fast if invalid
+settings = validate_startup_config()
+configure_logging(json_format=os.getenv("LOG_JSON", "false").lower() == "true")
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -50,7 +54,6 @@ async def lifespan(app: FastAPI):
     Loads shared models once, then domain-specific models concurrently,
     reusing the shared embedder/LLM instead of duplicating them.
     """
-    settings = get_settings()
     os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN")
 
     shared = await _load_model(settings, "shared", load_shared_models)
@@ -101,14 +104,76 @@ app.include_router(voice_router)
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     """Translate application errors into consistent HTTP responses."""
-    logger.error("AppError on %s %s: %s", request.method, request.url.path, exc.message)
+    logger.error(
+        "AppError on %s %s: %s (code=%s)",
+        request.method,
+        request.url.path,
+        exc.message,
+        exc.error_code,
+    )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": exc.message},
+        content={
+            "error": {
+                "code": exc.error_code,
+                "message": exc.message,
+                "details": exc.details,
+            }
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Handle Pydantic/FastAPI validation errors."""
+    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed",
+                "details": {"errors": exc.errors()},
+            }
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all for unexpected errors."""
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred",
+                "details": {},
+            }
+        },
     )
 
 
 @app.get("/health")
-def health():
-    """Health check endpoint."""
-    return {"status": "ok"}
+def health(request: Request):
+    """Comprehensive health check endpoint."""
+    response = run_health_checks(dict(request.app.state))
+    status_code = 200 if response.status == HealthStatus.HEALTHY else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": response.status.value,
+            "version": response.version,
+            "components": [
+                {
+                    "name": c.name,
+                    "status": c.status.value,
+                    "latency_ms": c.latency_ms,
+                    "details": c.details,
+                    "error": c.error,
+                }
+                for c in (response.components or [])
+            ],
+        },
+    )

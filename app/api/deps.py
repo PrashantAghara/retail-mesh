@@ -38,4 +38,4 @@ NLPModelsDep = get_nlp_models
 RagModelsDep = get_rag_models
 FulfillmentModelsDep = get_fulfillment_models
 VisionModelsDep = get_vision_models
-SuoervisorModelsDep = get_supervisor_models
+SupervisorModelsDep = get_supervisor_models

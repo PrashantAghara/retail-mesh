@@ -5,14 +5,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
-from app.api.deps import get_supervisor_models, get_voice_models
-from app.domain.supervisor.model_registry import SupervisorModelsContainer
+from app.api.deps import get_voice_models
 from app.domain.voice.model_registry import VoiceModelsContainer
 from app.domain.voice.service import synthesize_speech, transcribe_audio
 
 router = APIRouter(prefix="/voice", tags=["voice"])
-
+TEMP_AUDIO_DIR = Path(tempfile.gettempdir())
 MAX_FILE_SIZE = 25 * 1024 * 1024
 ALLOWED_AUDIO_MIME_TYPES = {
     "audio/wav",
@@ -22,6 +22,14 @@ ALLOWED_AUDIO_MIME_TYPES = {
     "audio/webm",
     "audio/flac",
 }
+
+
+class TranscribeResponse(BaseModel):
+    text: str
+
+
+class SynthesizeRequest(BaseModel):
+    text: str
 
 
 @contextmanager
@@ -49,14 +57,11 @@ def temp_output_file(suffix: str = ".wav"):
         Path(tmp_path).unlink(missing_ok=True)
 
 
-@router.post("/query")
-async def query_voice(
+@router.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe(
     file: UploadFile = File(...),  # noqa: B008
     voice_models: VoiceModelsContainer = Depends(get_voice_models),  # noqa: B008
-    supervisor_models: SupervisorModelsContainer = Depends(get_supervisor_models),  # noqa: B008
 ):
-    suffix = Path(file.filename).suffix or ".wav"
-
     if file.content_type not in ALLOWED_AUDIO_MIME_TYPES:
         raise HTTPException(
             status_code=400,
@@ -70,34 +75,25 @@ async def query_voice(
             detail=f"File size exceeds maximum allowed ({MAX_FILE_SIZE // (1024 * 1024)}MB)",
         )
 
+    suffix = Path(file.filename).suffix or ".wav"
     with temp_file(suffix=suffix) as tmp:
         tmp.write(contents)
         tmp.flush()
         input_path = tmp.name
 
-        transcribed_text = transcribe_audio(voice_models.groq_client, input_path)
+        try:
+            text = transcribe_audio(voice_models.groq_client, input_path)
+        finally:
+            Path(input_path).unlink(missing_ok=True)
 
-        result = supervisor_models.graph.invoke(
-            {
-                "query": transcribed_text,
-                "image_path": None,
-                "category": None,
-                "confidence": None,
-                "method": None,
-                "response": None,
-                "needs_image": False,
-            }
-        )
-        response_text = result["response"]
+    return TranscribeResponse(text=text)
 
-        with temp_output_file() as output_path:
-            synthesize_speech(voice_models.groq_client, response_text, output_path)
 
-            return FileResponse(
-                output_path,
-                media_type="audio/wav",
-                headers={
-                    "X-Transcribed-Query": transcribed_text,
-                    "X-Category": result.get("category") or "",
-                },
-            )
+@router.post("/synthesize")
+async def synthesize(
+    request: SynthesizeRequest,
+    voice_models: VoiceModelsContainer = Depends(get_voice_models),  # noqa: B008
+):
+    with temp_output_file() as output_path:
+        synthesize_speech(voice_models.groq_client, request.text, output_path)
+        return FileResponse(output_path, media_type="audio/wav")

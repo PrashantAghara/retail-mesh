@@ -14,7 +14,6 @@ from app.api.chat_stream import router as chat_stream_router
 from app.api.fulfillment import router as fulfillment_router
 from app.api.nlp import router as nlp_router
 from app.api.rag import router as rag_router
-from app.api.supervisor import router as supervisor_router
 from app.api.vision import router as vision_router
 from app.api.voice import router as voice_router
 from app.core.config import Settings, validate_startup_config
@@ -106,7 +105,6 @@ app.include_router(nlp_router)
 app.include_router(rag_router)
 app.include_router(fulfillment_router)
 app.include_router(vision_router)
-app.include_router(supervisor_router)
 app.include_router(voice_router)
 app.include_router(chat_stream_router)
 

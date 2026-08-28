@@ -7,15 +7,17 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.chat_stream import router as chat_stream_router
 from app.api.fulfillment import router as fulfillment_router
 from app.api.nlp import router as nlp_router
 from app.api.rag import router as rag_router
 from app.api.supervisor import router as supervisor_router
 from app.api.vision import router as vision_router
 from app.api.voice import router as voice_router
-from app.core.config import Settings, get_settings, validate_startup_config
+from app.core.config import Settings, validate_startup_config
 from app.core.exceptions import AppError
 from app.core.health import HealthStatus, run_health_checks
 from app.core.logging import configure_logging
@@ -93,12 +95,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="RetailMesh", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(nlp_router)
 app.include_router(rag_router)
 app.include_router(fulfillment_router)
 app.include_router(vision_router)
 app.include_router(supervisor_router)
 app.include_router(voice_router)
+app.include_router(chat_stream_router)
 
 
 @app.exception_handler(AppError)
@@ -124,9 +134,13 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     """Handle Pydantic/FastAPI validation errors."""
-    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
+    logger.warning(
+        "Validation error on %s %s: %s", request.method, request.url.path, exc.errors()
+    )
     return JSONResponse(
         status_code=422,
         content={

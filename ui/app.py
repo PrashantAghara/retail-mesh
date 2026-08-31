@@ -1,4 +1,5 @@
 import streamlit as st
+
 from api_client import stream_chat, synthesize_speech, transcribe_audio
 
 st.set_page_config(page_title="RetailMesh Assistant", page_icon="🛒", layout="centered")
@@ -17,21 +18,20 @@ st.markdown(
     }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-    /* Anchor the mic toggle to sit at the same bottom bar as the chat input.
-       Streamlit's centered layout maxes out around 752px — adjust `left` if
-       your window width/zoom makes this drift; it's a visual-only overlay,
-       not a native part of the input bar (Streamlit doesn't support that). */
-    div[data-testid="stButton"]:has(button[kind="secondary"][aria-label="mic-toggle"]) {
+    /* Floating mic button, pinned just above the docked chat input bar.
+       Uses Streamlit's stable st-key-<key> class (1.31+). */
+    .st-key-mic_toggle {
         position: fixed;
-        bottom: 14px;
-        left: calc(50% - 360px);
+        bottom: 92px;
+        right: 28px;
         z-index: 1000;
     }
-    div[data-testid="stButton"]:has(button[kind="secondary"][aria-label="mic-toggle"]) button {
+    .st-key-mic_toggle button {
         border-radius: 50%;
-        width: 44px;
-        height: 44px;
+        width: 48px;
+        height: 48px;
         padding: 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
     }
     </style>
     """,
@@ -118,7 +118,7 @@ def run_query(query, image_bytes=None, image_name=None, is_voice=False):
     )
 
 
-# --- Mic toggle, CSS-anchored to the chat input's bottom bar ---
+# --- Floating mic button (FAB), pinned above the docked chat input ---
 if st.button("🎙️", key="mic_toggle", help="Record a voice question"):
     st.session_state.voice_open = not st.session_state.voice_open
 

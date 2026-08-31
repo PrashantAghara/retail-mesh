@@ -1,6 +1,5 @@
 import json
 import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -23,19 +22,6 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
-@contextmanager
-def temp_file(suffix: str):
-    """Context manager for temporary file with guaranteed cleanup."""
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp_path = tmp.name
-            yield tmp
-    finally:
-        if tmp_path:
-            Path(tmp_path).unlink(missing_ok=True)
-
-
 @router.post("/stream")
 async def stream_chat(
     query: str = Form(...),
@@ -47,18 +33,17 @@ async def stream_chat(
     if file is not None:
         suffix = Path(file.filename).suffix.lower()
         if suffix not in ALLOWED_EXTENSIONS:
-            raise HTTPException(
-                status_code=400, detail=f"Unsupported file type '{suffix}'."
-            )
+            raise HTTPException(400, f"Unsupported file type '{suffix}'.")
         if file.content_type not in ALLOWED_MIME_TYPES:
-            raise HTTPException(
-                status_code=400, detail=f"Unsupported MIME type '{file.content_type}'."
-            )
+            raise HTTPException(400, f"Unsupported MIME type '{file.content_type}'.")
 
         contents = await file.read()
         if len(contents) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail="File too large.")
+            raise HTTPException(
+                413, f"File exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB."
+            )
 
+        # Write and fully close the handle here — do NOT delete yet.
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(contents)
             image_path = tmp.name
@@ -80,6 +65,7 @@ async def stream_chat(
                     label = STEP_LABELS.get(node_name, node_name)
                     yield f"data: {json.dumps({'type': 'step', 'node': node_name, 'label': label})}\n\n"
                     final_state.update(node_state)
+
             done_event = {
                 "type": "done",
                 "category": final_state.get("category"),
@@ -88,9 +74,8 @@ async def stream_chat(
             }
             yield f"data: {json.dumps(done_event)}\n\n"
         finally:
+            # Only deleted AFTER streaming (and thus Vision's file read) is fully done.
             if image_path:
-                Path(image_path).unlink(
-                    missing_ok=True
-                )  # cleanup happens AFTER streaming completes
+                Path(image_path).unlink(missing_ok=True)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

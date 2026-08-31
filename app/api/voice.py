@@ -1,11 +1,11 @@
 import tempfile
 import uuid
-from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from app.api.deps import get_voice_models
 from app.domain.voice.model_registry import VoiceModelsContainer
@@ -32,59 +32,28 @@ class SynthesizeRequest(BaseModel):
     text: str
 
 
-@contextmanager
-def temp_file(suffix: str = ""):
-    """Context manager for temporary file with guaranteed cleanup."""
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp_path = tmp.name
-            yield tmp
-    finally:
-        if tmp_path:
-            Path(tmp_path).unlink(missing_ok=True)
-
-
-@contextmanager
-def temp_output_file(suffix: str = ".wav"):
-    """Context manager for temporary output file that persists until explicitly cleaned."""
-    tmp_path = (
-        Path(tempfile.gettempdir()) / f"voice_response_{uuid.uuid4().hex}{suffix}"
-    )
-    try:
-        yield str(tmp_path)
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-
-
 @router.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe(
-    file: UploadFile = File(...),  # noqa: B008
-    voice_models: VoiceModelsContainer = Depends(get_voice_models),  # noqa: B008
+    file: UploadFile = File(...),
+    voice_models: VoiceModelsContainer = Depends(get_voice_models),
 ):
     if file.content_type not in ALLOWED_AUDIO_MIME_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported audio MIME type '{file.content_type}'. Allowed: {', '.join(ALLOWED_AUDIO_MIME_TYPES)}",
-        )
+        raise HTTPException(400, f"Unsupported audio MIME type '{file.content_type}'.")
 
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File size exceeds maximum allowed ({MAX_FILE_SIZE // (1024 * 1024)}MB)",
-        )
+        raise HTTPException(413, f"File exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB.")
 
     suffix = Path(file.filename).suffix or ".wav"
-    with temp_file(suffix=suffix) as tmp:
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(contents)
-        tmp.flush()
         input_path = tmp.name
 
-        try:
-            text = transcribe_audio(voice_models.groq_client, input_path)
-        finally:
-            Path(input_path).unlink(missing_ok=True)
+    try:
+        text = transcribe_audio(voice_models.groq_client, input_path)
+    finally:
+        Path(input_path).unlink(missing_ok=True)
 
     return TranscribeResponse(text=text)
 
@@ -92,8 +61,13 @@ async def transcribe(
 @router.post("/synthesize")
 async def synthesize(
     request: SynthesizeRequest,
-    voice_models: VoiceModelsContainer = Depends(get_voice_models),  # noqa: B008
+    voice_models: VoiceModelsContainer = Depends(get_voice_models),
 ):
-    with temp_output_file() as output_path:
-        synthesize_speech(voice_models.groq_client, request.text, output_path)
-        return FileResponse(output_path, media_type="audio/wav")
+    output_path = str(TEMP_AUDIO_DIR / f"voice_response_{uuid.uuid4().hex}.wav")
+    synthesize_speech(voice_models.groq_client, request.text, output_path)
+
+    return FileResponse(
+        output_path,
+        media_type="audio/wav",
+        background=BackgroundTask(lambda: Path(output_path).unlink(missing_ok=True)),
+    )

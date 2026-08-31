@@ -39,8 +39,8 @@ def temp_file(suffix: str):
 @router.post("/stream")
 async def stream_chat(
     query: str = Form(...),
-    file: UploadFile | None = File(None),  # noqa: B008
-    models: SupervisorModelsContainer = Depends(get_supervisor_models),  # noqa: B008
+    file: UploadFile | None = File(None),
+    models: SupervisorModelsContainer = Depends(get_supervisor_models),
 ):
     image_path = None
 
@@ -48,26 +48,19 @@ async def stream_chat(
         suffix = Path(file.filename).suffix.lower()
         if suffix not in ALLOWED_EXTENSIONS:
             raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type '{suffix}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+                status_code=400, detail=f"Unsupported file type '{suffix}'."
             )
-
         if file.content_type not in ALLOWED_MIME_TYPES:
             raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported MIME type '{file.content_type}'. Allowed: {', '.join(ALLOWED_MIME_TYPES)}",
+                status_code=400, detail=f"Unsupported MIME type '{file.content_type}'."
             )
 
         contents = await file.read()
         if len(contents) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File size exceeds maximum allowed ({MAX_FILE_SIZE // (1024 * 1024)}MB)",
-            )
+            raise HTTPException(status_code=413, detail="File too large.")
 
-        with temp_file(suffix=suffix) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(contents)
-            tmp.flush()
             image_path = tmp.name
 
     async def event_generator():
@@ -81,14 +74,12 @@ async def stream_chat(
             "needs_image": False,
         }
         final_state = dict(initial_state)
-
         try:
             for step_output in models.graph.stream(initial_state):
                 for node_name, node_state in step_output.items():
                     label = STEP_LABELS.get(node_name, node_name)
                     yield f"data: {json.dumps({'type': 'step', 'node': node_name, 'label': label})}\n\n"
                     final_state.update(node_state)
-
             done_event = {
                 "type": "done",
                 "category": final_state.get("category"),
@@ -98,6 +89,8 @@ async def stream_chat(
             yield f"data: {json.dumps(done_event)}\n\n"
         finally:
             if image_path:
-                Path(image_path).unlink(missing_ok=True)
+                Path(image_path).unlink(
+                    missing_ok=True
+                )  # cleanup happens AFTER streaming completes
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
